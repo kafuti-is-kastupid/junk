@@ -10,7 +10,6 @@ def read_config():
     Reads configuration values from a file named 'config.txt' located in the same folder as this script.
     The file should use lines in key=value format. Lines beginning with '#' or blank lines are ignored.
     """
-    # Determine the path of this script.
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.txt")
     
@@ -46,8 +45,8 @@ def create_junk_file(repo, file_index, file_size, config):
     """
     Attempts to create (or update) a junk file in the specified repository.
     
-    The file name is constructed using FILE_NAME_PREFIX and FILE_EXTENSION from the config.
-    The junk file's content is a random string with each character on its own line.
+    - The file name is constructed using FILE_NAME_PREFIX and FILE_EXTENSION from the config.
+    - The junk file's content is a random string with each character on its own line.
     
     If the file already exists (error 409), the script retrieves the current SHA and updates the file.
     If a 403 error is encountered, a delay is applied before retrying the update.
@@ -87,7 +86,7 @@ def create_junk_file(repo, file_index, file_size, config):
             print(f"Error creating file '{file_name}' in repository '{repo.name}': {e}")
 
 def main():
-    # Read configuration from config.txt (which must be in the same folder as this script)
+    # Read configuration from config.txt (which must be in the same folder as this script).
     config = read_config()
     token = config.get("GITHUB_TOKEN")
     repo_name = config.get("REPO_NAME")
@@ -122,6 +121,14 @@ def main():
             print(f"Error creating repository '{repo_name}': {create_err}")
             exit(1)
     
+    # Ask the user for the execution mode.
+    mode_input = input("Choose execution speed - Enter F for SUPER FAST or S for SLOW: ").strip().lower()
+    slow_mode = True if mode_input == "s" else False
+    if slow_mode:
+        print("Running in SLOW mode. Concurrency is reduced and delays are added to avoid rate limiting.")
+    else:
+        print("Running in SUPER FAST mode. This will use maximum concurrency (use with caution).")
+    
     # Prompt for the junk file details.
     try:
         num_files = int(input("Enter the number of junk files to create/update: "))
@@ -130,18 +137,21 @@ def main():
         print("Invalid input. Please enter numeric values.")
         exit(1)
     
-    # Create or update junk files concurrently.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_files) as executor:
+    # Adjust the number of threads based on the mode.
+    max_workers = 1 if slow_mode else num_files
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(create_junk_file, repo, i, file_size, config)
             for i in range(1, num_files + 1)
         ]
-        # Wait for all tasks to complete.
         for future in concurrent.futures.as_completed(futures):
             try:
                 future.result()
             except Exception as e:
                 print(f"An error occurred during file processing: {e}")
-
+            if slow_mode:
+                time.sleep(1)
+    
 if __name__ == "__main__":
     main()

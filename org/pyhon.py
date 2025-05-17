@@ -101,7 +101,7 @@ def create_junk_file(repo, file_index, file_size, config):
             print(f"  • Error creating file '{file_name}' in repository '{repo.name}': {err}")
             return (repo, file_index, file_size)
 
-def process_repo(repo_index, num_files, file_size, org, config):
+def process_repo(repo_index, num_files, file_size, org, config, slow_mode):
     """
     Creates a repository (with a name, description, and privacy setting from config)
     and concurrently creates junk files within it.
@@ -117,13 +117,15 @@ def process_repo(repo_index, num_files, file_size, org, config):
     try:
         repo = org.create_repo(
             name=repo_name,
-            auto_init=True,  # Repository is initialized with a default branch (and README).
+            auto_init=True,
             description=repo_description,
             private=private_repo
         )
         print(f"Created repository: {repo_name}")
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_files) as file_executor:
+        # For file creation, use fewer concurrent threads if in slow mode.
+        max_workers_files = 1 if slow_mode else num_files
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers_files) as file_executor:
             futures = [
                 file_executor.submit(create_junk_file, repo, i, file_size, config)
                 for i in range(1, num_files + 1)
@@ -132,23 +134,25 @@ def process_repo(repo_index, num_files, file_size, org, config):
                 result = future.result()
                 if result is not True:
                     failed_files.append(result)
+                # If in slow mode, insert a brief delay between file tasks.
+                if slow_mode:
+                    time.sleep(1)
     except Exception as err:
         print(f"Error creating repository '{repo_name}': {err}")
     
     return failed_files
 
-def retry_failed_files(failed_tasks, config):
+def retry_failed_files(failed_tasks, config, slow_mode):
     """
     Sequentially retries file creation/update tasks for any files that failed.
-    
     Each element in failed_tasks is a tuple: (repo, file_index, file_size).
     Returns a new list of tasks that still fail after the retry.
     """
     new_failures = []
     for task in failed_tasks:
         repo, file_index, file_size = task
-        # Wait a short delay between retries.
-        time.sleep(1)
+        if slow_mode:
+            time.sleep(1)
         result = create_junk_file(repo, file_index, file_size, config)
         if result is not True:
             new_failures.append(result)
@@ -170,6 +174,14 @@ def main():
         print(f"Error connecting to organization '{org_name}': {e}")
         exit(1)
     
+    # Ask the user for mode selection.
+    mode_input = input("Choose execution speed - Enter F for SUPER FAST or S for SLOW: ").strip().lower()
+    slow_mode = True if mode_input == "s" else False
+    if slow_mode:
+        print("Running in SLOW mode. Concurrency is reduced and delays are added to avoid rate limiting.")
+    else:
+        print("Running in SUPER FAST mode. This will use maximum concurrency (use with caution).")
+    
     try:
         num_repos = int(input("Enter the number of repositories to create: "))
         num_files = int(input("Enter the number of junk files per repository: "))
@@ -179,10 +191,11 @@ def main():
         exit(1)
     
     global_failed_files = []
-    # Create repositories concurrently.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_repos) as repo_executor:
+    # Use a reduced number of threads for repository creation when in slow mode.
+    max_workers_repos = 1 if slow_mode else num_repos
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers_repos) as repo_executor:
         repo_futures = [
-            repo_executor.submit(process_repo, i, num_files, file_size, org, config)
+            repo_executor.submit(process_repo, i, num_files, file_size, org, config, slow_mode)
             for i in range(1, num_repos + 1)
         ]
         for future in concurrent.futures.as_completed(repo_futures):
@@ -199,7 +212,7 @@ def main():
         time.sleep(RETRY_DELAY)
         for attempt in range(MAX_RETRIES):
             print(f"\nRetry attempt {attempt + 1}:")
-            global_failed_files = retry_failed_files(global_failed_files, config)
+            global_failed_files = retry_failed_files(global_failed_files, config, slow_mode)
             if not global_failed_files:
                 print("All previously failed file tasks have succeeded on retry.")
                 break
