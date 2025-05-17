@@ -1,0 +1,7 @@
+GITHUB_TOKEN=your_personal_access_token_here
+ORG_NAME=your_organization_name_here
+REPO_NAME_PREFIX=repo-
+REPO_DESCRIPTION=Repository filled with junk content
+PRIVATE_REPO=False
+FILE_NAME_PREFIX=junk-
+FILE_EXTENSION=txt
